@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Castello Baronale di Neviano</title>
+
+    <script type="module"
+        src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.3.1/model-viewer.min.js">
+    </script>
+
+    <style>
+        body {
+            margin: 0;
+            background: #eeeeee;
+            font-family: Arial, sans-serif;
+        }
+
+        model-viewer {
+            width: 100vw;
+            height: 100vh;
+            background-color: #eeeeee;
+        }
+    </style>
+</head>
+
+<body>
+
+    <model-viewer
+        src="Neviano_volume_v01.glb"
+        alt="Ricostruzione virtuale del Castello Baronale di Neviano"
+        ar
+        ar-scale="fixed"
+        camera-controls
+        touch-action="pan-y"
+        shadow-intensity="1">
+
+        <button slot="ar-button">
+            📱 VISUALIZZA IN AR
+        </button>
+
+    </model-viewer>
+
+</body>
+</html>
