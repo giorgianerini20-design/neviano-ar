@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+  >
+
+  <title>Neviano AR – Test WebXR</title>
+
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      font-family: Arial, sans-serif;
+    }
+
+    #info {
+      position: fixed;
+      top: 15px;
+      left: 15px;
+      right: 15px;
+      z-index: 10;
+      padding: 12px 15px;
+      border-radius: 10px;
+      background: rgba(0,0,0,0.7);
+      color: white;
+      font-size: 14px;
+      line-height: 1.4;
+      text-align: center;
+    }
+
+    #status {
+      margin-top: 5px;
+      color: #b8e986;
+    }
+
+    #startAR {
+      position: fixed;
+      left: 50%;
+      bottom: 30px;
+      transform: translateX(-50%);
+      z-index: 20;
+
+      border: none;
+      border-radius: 12px;
+      padding: 15px 25px;
+
+      background: #ffffff;
+      color: #111;
+
+      font-size: 17px;
+      font-weight: bold;
+    }
+
+    #place {
+      position: fixed;
+      left: 50%;
+      bottom: 30px;
+      transform: translateX(-50%);
+
+      z-index: 20;
+
+      display: none;
+
+      border: none;
+      border-radius: 12px;
+      padding: 15px 25px;
+
+      background: #1f8f4c;
+      color: white;
+
+      font-size: 17px;
+      font-weight: bold;
+    }
+
+    #reticle {
+      position: fixed;
+      left: 50%;
+      top: 50%;
+
+      width: 30px;
+      height: 30px;
+
+      transform: translate(-50%, -50%);
+
+      border: 2px solid white;
+      border-radius: 50%;
+
+      z-index: 15;
+
+      display: none;
+      pointer-events: none;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div id="info">
+    <strong>Ricostruzione del Castello Baronale di Neviano</strong>
+    <div id="status">
+      Premi "AVVIA AR"
+    </div>
+  </div>
+
+  <button id="startAR">
+    AVVIA AR
+  </button>
+
+  <button id="place">
+    POSIZIONA RICOSTRUZIONE
+  </button>
+
+  <div id="reticle"></div>
+
+  <script type="module">
+
+    import * as THREE from
+      'https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js';
+
+    import { GLTFLoader } from
+      'https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/loaders/GLTFLoader.js';
+
+
+    // --------------------------------------------------
+    // ELEMENTI INTERFACCIA
+    // --------------------------------------------------
+
+    const startButton = document.getElementById('startAR');
+    const placeButton = document.getElementById('place');
+    const status = document.getElementById('status');
+    const reticleElement = document.getElementById('reticle');
+
+
+    // --------------------------------------------------
+    // THREE.JS
+    // --------------------------------------------------
+
+    let scene;
+    let camera;
+    let renderer;
+
+    let model = null;
+
+    let controller;
+
+    let reticle;
+
+    let hitTestSource = null;
+    let hitTestSourceRequested = false;
+
+    let placed = false;
+
+
+    // --------------------------------------------------
+    // INIZIALIZZAZIONE
+    // --------------------------------------------------
+
+    init();
+
+
+    function init() {
+
+      scene = new THREE.Scene();
+
+      camera = new THREE.PerspectiveCamera(
+        70,
+        window.innerWidth / window.innerHeight,
+        0.01,
+        1000
+      );
+
+
+      // Luce ambientale
+      const hemiLight = new THREE.HemisphereLight(
+        0xffffff,
+        0xbbbbff,
+        3
+      );
+
+      scene.add(hemiLight);
+
+
+      // Luce direzionale
+      const directionalLight = new THREE.DirectionalLight(
+        0xffffff,
+        2
+      );
+
+      directionalLight.position.set(5, 10, 5);
+
+      scene.add(directionalLight);
+
+
+      // Renderer
+      renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        alpha: true
+      });
+
+      renderer.setPixelRatio(
+        window.devicePixelRatio
+      );
+
+      renderer.setSize(
+        window.innerWidth,
+        window.innerHeight
+      );
+
+      renderer.xr.enabled = true;
+
+      renderer.xr.setReferenceSpaceType('local');
+
+      document.body.appendChild(
+        renderer.domElement
+      );
+
+
+      // Reticolo virtuale
+      reticle = new THREE.Mesh(
+        new THREE.RingGeometry(
+          0.12,
+          0.15,
+          32
+        ),
+        new THREE.MeshBasicMaterial({
+          color: 0xffffff
+        })
+      );
+
+      reticle.rotation.x = -Math.PI / 2;
+
+      reticle.matrixAutoUpdate = false;
+
+      reticle.visible = false;
+
+      scene.add(reticle);
+
+
+      // Controller
+      controller = renderer.xr.getController(0);
+
+      controller.addEventListener(
+        'select',
+        onSelect
+      );
+
+      scene.add(controller);
+
+
+      // Caricamento GLB
+      const loader = new GLTFLoader();
+
+      loader.load(
+        'Neviano_volume_v03.glb',
+
+        function(gltf) {
+
+          model = gltf.scene;
+
+          model.visible = false;
+
+          scene.add(model);
+
+          status.textContent =
+            'Modello caricato. Premi AVVIA AR.';
+
+        },
+
+        function(xhr) {
+
+          if (xhr.total) {
+
+            const percent =
+              Math.round(
+                xhr.loaded / xhr.total * 100
+              );
+
+            status.textContent =
+              'Caricamento modello: ' +
+              percent +
+              '%';
+
+          }
+
+        },
+
+        function(error) {
+
+          console.error(error);
+
+          status.textContent =
+            'Errore nel caricamento del modello.';
+
+        }
+      );
+
+
+      // Resize
+      window.addEventListener(
+        'resize',
+        onWindowResize
+      );
+
+
+      // Pulsante AR
+      startButton.addEventListener(
+        'click',
+        startAR
+      );
+
+
+      // Pulsante posizionamento
+      placeButton.addEventListener(
+        'click',
+        placeModel
+      );
+
+
+      animate();
+    }
+
+
+    // --------------------------------------------------
+    // AVVIO WEBXR
+    // --------------------------------------------------
+
+    async function startAR() {
+
+      if (!navigator.xr) {
+
+        status.textContent =
+          'WebXR AR non è disponibile su questo dispositivo/browser.';
+
+        return;
+      }
+
+
+      try {
+
+        const supported =
+          await navigator.xr.isSessionSupported(
+            'immersive-ar'
+          );
+
+
+        if (!supported) {
+
+          status.textContent =
+            'Questo dispositivo non supporta WebXR AR.';
+
+          return;
+        }
+
+
+        const session =
+          await navigator.xr.requestSession(
+            'immersive-ar',
+            {
+              requiredFeatures: [
+                'local',
+                'hit-test'
+              ],
+
+              optionalFeatures: [
+                'anchors'
+              ]
+            }
+          );
+
+
+        renderer.xr.setSession(session);
+
+
+        startButton.style.display =
+          'none';
+
+        reticleElement.style.display =
+          'block';
+
+        placeButton.style.display =
+          'block';
+
+        status.textContent =
+          'Muovi lentamente il telefono sul pavimento.';
+
+
+        session.addEventListener(
+          'end',
+          function() {
+
+            hitTestSource = null;
+
+            hitTestSourceRequested = false;
+
+            startButton.style.display =
+              'block';
+
+            placeButton.style.display =
+              'none';
+
+            reticleElement.style.display =
+              'none';
+
+            status.textContent =
+              'Sessione AR terminata.';
+
+          }
+        );
+
+      }
+
+      catch(error) {
+
+        console.error(error);
+
+        status.textContent =
+          'Impossibile avviare la modalità AR.';
+
+      }
+
+    }
+
+
+    // --------------------------------------------------
+    // HIT TEST
+    // --------------------------------------------------
+
+    function requestHitTestSource(
+      session,
+      frame
+    ) {
+
+      if (hitTestSourceRequested)
+        return;
+
+
+      const referenceSpace =
+        renderer.xr.getReferenceSpace();
+
+
+      session.requestReferenceSpace(
+        'viewer'
+      )
+
+      .then(function(viewerSpace) {
+
+        session.requestHitTestSource({
+          space: viewerSpace
+        })
+
+        .then(function(source) {
+
+          hitTestSource =
+            source;
+
+        });
+
+      });
+
+
+      session.addEventListener(
+        'end',
+        function() {
+
+          hitTestSource = null;
+
+          hitTestSourceRequested =
+            false;
+
+        }
+      );
+
+
+      hitTestSourceRequested =
+        true;
+    }
+
+
+    // --------------------------------------------------
+    // POSIZIONAMENTO
+    // --------------------------------------------------
+
+    function placeModel() {
+
+      if (!model)
+        return;
+
+      if (!reticle.visible) {
+
+        status.textContent =
+          'Prima trova una superficie del pavimento.';
+
+        return;
+      }
+
+
+      // Copia la posizione trovata dal reticolo
+      model.position.setFromMatrixPosition(
+        reticle.matrix
+      );
+
+
+      // Manteniamo l'orientamento del modello
+      model.rotation.set(
+        0,
+        0,
+        0
+      );
+
+
+      model.visible = true;
+
+      placed = true;
+
+
+      placeButton.style.display =
+        'none';
+
+
+      status.textContent =
+        'Ricostruzione posizionata. Ora puoi muoverti intorno al modello.';
+
+    }
+
+
+    // --------------------------------------------------
+    // TAP SULLO SCHERMO
+    // --------------------------------------------------
+
+    function onSelect() {
+
+      if (!model)
+        return;
+
+      if (!placed) {
+
+        placeModel();
+
+      }
+
+    }
+
+
+    // --------------------------------------------------
+    // ANIMAZIONE
+    // --------------------------------------------------
+
+    function animate() {
+
+      renderer.setAnimationLoop(
+        render
+      );
+
+    }
+
+
+    function render(
+      timestamp,
+      frame
+    ) {
+
+      if (frame) {
+
+        const session =
+          renderer.xr.getSession();
+
+
+        if (!hitTestSourceRequested) {
+
+          requestHitTestSource(
+            session,
+            frame
+          );
+
+        }
+
+
+        if (hitTestSource) {
+
+          const referenceSpace =
+            renderer.xr.getReferenceSpace();
+
+
+          const hitTestResults =
+            frame.getHitTestResults(
+              hitTestSource
+            );
+
+
+          if (
+            hitTestResults.length > 0
+          ) {
+
+            const hit =
+              hitTestResults[0];
+
+
+            const pose =
+              hit.getPose(
+                referenceSpace
+              );
+
+
+            if (pose) {
+
+              reticle.visible =
+                !placed;
+
+
+              if (!placed) {
+
+                reticle.matrix.fromArray(
+                  pose.transform.matrix
+                );
+
+              }
+
+            }
+
+          }
+
+          else {
+
+            reticle.visible =
+              false;
+
+          }
+
+        }
+
+      }
+
+
+      renderer.render(
+        scene,
+        camera
+      );
+
+    }
+
+
+    // --------------------------------------------------
+    // RESIZE
+    // --------------------------------------------------
+
+    function onWindowResize() {
+
+      camera.aspect =
+        window.innerWidth /
+        window.innerHeight;
+
+      camera.updateProjectionMatrix();
+
+      renderer.setSize(
+        window.innerWidth,
+        window.innerHeight
+      );
+
+    }
+
+  </script>
+
+</body>
+</html>
